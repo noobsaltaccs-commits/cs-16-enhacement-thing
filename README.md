@@ -21,8 +21,41 @@ install, that specific effect is skipped and everything keeps working.
 ## Requirements
 
 - Counter-Strike 1.6 dedicated or listen server
-- [AMX Mod X](https://www.amxmodx.org/downloads.php) **1.8.3+** (1.9 / 1.10 recommended)
+- [AMX Mod X](https://www.amxmodx.org/downloads.php) **1.8.0+** (1.9 / 1.10 recommended)
 - `fakemeta` module enabled (it is by default)
+
+## Troubleshooting (server crashes at map start)
+
+Work through this list top to bottom — it covers every known cause:
+
+1. **Check the AMXX welcome/version line** in the server console at startup
+   (or type `amxx version` at server console; `meta version`/`meta list` shows metamod).
+   If AMXX itself never prints its banner, the problem is metamod/AMXX
+   installation, not this plugin.
+
+2. **Look at the console right before the crash.** AMXX almost always says why:
+   - `bad load` / `invalid file format` → the binary got corrupted in transit
+     (FTP in text mode mangles `.amxx` files — re-upload in **binary mode**!),
+     or your AMXX is ancient. Recompile from source (below) — 2 minutes.
+   - `Run time error: Plugin paused` → run `amxx plugins` and paste the error.
+   - A **Host_Error / Sys_Error about a model or sprite** at map load means a
+     corrupt model on the server — v1.0.1 guards against this automatically.
+
+3. **When in doubt, compile the source yourself** with your server's own
+   compiler (guarantees a good binary for your AMXX build):
+   - Easiest: drop `cs16_gore_enhanced.sma` into
+     https://www.amxmodx.org/webcompiler.cgi and use the result.
+   - Or use your server's own `amxxpc` (see "Compiling from source").
+
+4. **Check install paths:** the `.amxx` goes in `addons/amxmodx/plugins/`,
+   the line in `configs/plugins.ini` is exactly `cs16_gore_enhanced.amxx`
+   (not the `.sma`!). One plugin file, one text line — nothing else needs
+   to change in your AMXX installation.
+
+5. Most genuine startup crashes are an **AMXX/metamod/engine mismatch**
+   (old non-Steam "protocol 43/47" builds + modern AMXX, etc.). If the crash
+   happens with only default plugins too, reinstall AMXX 1.9/1.10 matched to
+   your engine (HLDS or ReHLDS).
 
 ## Installation
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.1] - 2026-07-21
+
+Compatibility hardening after a reported startup crash:
+
+- Dropped pcvar API for the classic cvar API — plugin now loads on
+  AMXX 1.8.0+ (no more `get_pcvar_num` requirement)
+- Precaching now skips missing *and suspiciously small/corrupt* stock
+  files (corrupt models precached at map start crash the engine with
+  Host_Error on some installs)
+- Added "Troubleshooting" section to the README
+- Rebuilt `.amxx`; binary structure re-validated against the AMXX
+  loader's format expectations
+
 ## [1.0.0] - 2026-07-21
 
 Initial release.

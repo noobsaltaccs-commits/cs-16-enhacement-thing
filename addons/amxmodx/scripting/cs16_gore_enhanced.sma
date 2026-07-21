@@ -15,7 +15,7 @@
 //  fleshgibs/hgibs models, the stock blood sprites and the stock blood
 //  decals from decals.wad, so players need zero downloads.
 //
-//  Requires: AMX Mod X 1.8.3 or newer (1.9/1.10 recommended), fakemeta.
+//  Requires: AMX Mod X 1.8.0 or newer (1.9/1.10 recommended), fakemeta.
 //
 //  License: MIT
 //
@@ -26,8 +26,17 @@
 #include <fakemeta>
 
 #define PLUGIN_NAME    "CS16 Gore Enhanced"
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.0.1"
 #define PLUGIN_AUTHOR  "noobsaltaccs-commits"
+
+/* CVar names (classic cvar API — works even on ancient AMXX builds) */
+new const CVAR_MODE[]  = "amx_gore_mode";         // 0 off, 1 normal, 2 EXTREME
+new const CVAR_BLOOD[] = "amx_gore_blood";
+new const CVAR_DECALS[] = "amx_gore_decals";
+new const CVAR_GIBS[]  = "amx_gore_gibs";
+new const CVAR_GIBCOUNT[] = "amx_gore_gibcount";
+new const CVAR_HEADSHOT[] = "amx_gore_headshot";
+new const CVAR_FLASH[] = "amx_gore_screenflash";
 
 /* Blood palette index (red) — from the HL SDK const.h */
 #define BLOOD_COLOR_RED 247
@@ -46,14 +55,9 @@
 new const SMALL_BLOOD_DECALS[] = { 190, 191, 192, 193, 195, 196, 197 };
 new const BIG_BLOOD_DECALS[]   = { 198, 199, 200, 201, 202, 203, 204 };
 
-/* CVars */
-new g_pMode;        // amx_gore_mode        0 = off, 1 = normal, 2 = EXTREME
-new g_pBlood;       // amx_gore_blood       extra blood streams/sprays
-new g_pDecals;      // amx_gore_decals      blood splat/pool decals
-new g_pGibs;        // amx_gore_gibs        gib bodies on death
-new g_pGibCount;    // amx_gore_gibcount    base number of giblets
-new g_pHeadshot;    // amx_gore_headshot    extra skull gibs on headshot kills
-new g_pFlash;       // amx_gore_screenflash red flash for the victim
+/* Helps ------------------------------------------------------------- */
+stock gore_mode() { return clamp(get_cvar_num(CVAR_MODE), 0, 2); }
+stock gore_on(const cvar[]) { return get_cvar_num(cvar) != 0; }
 
 /* Precached stock resources (-1 = missing on this server, effect skipped) */
 new g_iFleshGibModel = -1;
@@ -63,26 +67,37 @@ new g_iBloodDropSpr  = -1;
 
 new g_msgScreenFade;
 
+/*
+ * Safe precache: only precache files that exist and have a plausible size.
+ * A corrupt/zero-byte model precached at map start kills the engine with
+ * a Host_Error — some sketchy installs ship placeholder files like that.
+ */
+stock safe_precache_model(const path[])
+{
+    if (!file_exists(path))
+        return -1;
+
+    new size = filesize(path);
+    if (size < 256)          /* real models/sprites are way bigger */
+        return -1;
+
+    return precache_model(path);
+}
+
 //------------------------------------------------------------------------------
 // Precaching (must happen here, not in plugin_init)
 //------------------------------------------------------------------------------
 public plugin_precache()
 {
-    if (file_exists("models/fleshgibs.mdl"))
-        g_iFleshGibModel = precache_model("models/fleshgibs.mdl");
-
-    if (file_exists("models/hgibs.mdl"))
-        g_iSkullGibModel = precache_model("models/hgibs.mdl");
+    g_iFleshGibModel = safe_precache_model("models/fleshgibs.mdl");
+    g_iSkullGibModel = safe_precache_model("models/hgibs.mdl");
 
     /* Fallback: if fleshgibs is missing but hgibs exists, gib with skulls. */
     if (g_iFleshGibModel < 0 && g_iSkullGibModel >= 0)
         g_iFleshGibModel = g_iSkullGibModel;
 
-    if (file_exists("sprites/bloodspray.spr"))
-        g_iBloodSpraySpr = precache_model("sprites/bloodspray.spr");
-
-    if (file_exists("sprites/blood.spr"))
-        g_iBloodDropSpr = precache_model("sprites/blood.spr");
+    g_iBloodSpraySpr = safe_precache_model("sprites/bloodspray.spr");
+    g_iBloodDropSpr  = safe_precache_model("sprites/blood.spr");
 }
 
 //------------------------------------------------------------------------------
@@ -93,13 +108,13 @@ public plugin_init()
     register_plugin(PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_AUTHOR);
     register_cvar("cs16_gore_version", PLUGIN_VERSION, FCVAR_SERVER | FCVAR_SPONLY);
 
-    g_pMode     = register_cvar("amx_gore_mode",        "1");
-    g_pBlood    = register_cvar("amx_gore_blood",       "1");
-    g_pDecals   = register_cvar("amx_gore_decals",      "1");
-    g_pGibs     = register_cvar("amx_gore_gibs",        "1");
-    g_pGibCount = register_cvar("amx_gore_gibcount",    "6");
-    g_pHeadshot = register_cvar("amx_gore_headshot",    "1");
-    g_pFlash    = register_cvar("amx_gore_screenflash", "1");
+    register_cvar(CVAR_MODE,     "1");
+    register_cvar(CVAR_BLOOD,    "1");
+    register_cvar(CVAR_DECALS,   "1");
+    register_cvar(CVAR_GIBS,     "1");
+    register_cvar(CVAR_GIBCOUNT, "6");
+    register_cvar(CVAR_HEADSHOT, "1");
+    register_cvar(CVAR_FLASH,    "1");
 
     register_event("Damage",   "OnDamage",   "b", "2!0");
     register_event("DeathMsg", "OnDeathMsg", "a");
@@ -115,8 +130,8 @@ public plugin_init()
 //------------------------------------------------------------------------------
 public OnDamage(id)
 {
-    new mode = get_pcvar_num(g_pMode);
-    if (mode < 1 || !get_pcvar_num(g_pBlood))
+    new mode = gore_mode();
+    if (mode < 1 || !gore_on(CVAR_BLOOD))
         return;
 
     /* If this damage killed them, DeathMsg handles the big show. */
@@ -184,7 +199,7 @@ public OnDamage(id)
     }
 
     /* --- Splat decal on the floor nearby ------------------------------- */
-    if (get_pcvar_num(g_pDecals) && (mode >= 2 || random_num(1, 100) <= 70))
+    if (gore_on(CVAR_DECALS) && (mode >= 2 || random_num(1, 100) <= 70))
     {
         new Float:p[3];
         p[0] = origin[0] + random_float(-60.0, 60.0);
@@ -194,7 +209,7 @@ public OnDamage(id)
     }
 
     /* --- Red flash for the victim -------------------------------------- */
-    if (get_pcvar_num(g_pFlash))
+    if (gore_on(CVAR_FLASH))
         fx_screen_flash(id, damage);
 }
 
@@ -203,7 +218,7 @@ public OnDamage(id)
 //------------------------------------------------------------------------------
 public OnDeathMsg()
 {
-    new mode = get_pcvar_num(g_pMode);
+    new mode = gore_mode();
     if (mode < 1)
         return;
 
@@ -224,7 +239,7 @@ public OnDeathMsg()
     new bool:bBlast = equali(weapon, "grenade") != 0;
 
     /* --- Radial blood explosion --------------------------------------- */
-    if (get_pcvar_num(g_pBlood))
+    if (gore_on(CVAR_BLOOD))
     {
         new n = 8 * mul;
         if (bBlast)
@@ -254,7 +269,7 @@ public OnDeathMsg()
     }
 
     /* --- Blood pools under the corpse ---------------------------------- */
-    if (get_pcvar_num(g_pDecals))
+    if (gore_on(CVAR_DECALS))
     {
         new pools = 2 + (headshot ? 1 : 0) + (mul - 1);
         if (bBlast)
@@ -271,16 +286,16 @@ public OnDeathMsg()
     }
 
     /* --- Giblets --------------------------------------------------------- */
-    if (get_pcvar_num(g_pGibs) && g_iFleshGibModel >= 0)
+    if (gore_on(CVAR_GIBS) && g_iFleshGibModel >= 0)
     {
-        new count = clamp(get_pcvar_num(g_pGibCount), 1, 32) * mul;
+        new count = clamp(get_cvar_num(CVAR_GIBCOUNT), 1, 32) * mul;
         if (bBlast)
             count *= 2;
 
         fx_break_model(mid, g_iFleshGibModel, count);
 
         /* Headshot pop: skull chunks from the noggin. */
-        if (headshot && get_pcvar_num(g_pHeadshot))
+        if (headshot && gore_on(CVAR_HEADSHOT))
         {
             new Float:head[3];
             head = origin;
@@ -315,15 +330,15 @@ public CmdGore(id, level, cid)
     if (read_argc() < 2)
     {
         console_print(id, "[Gore] Current mode: %d (%s). Usage: amx_gore <0|1|2>",
-                      get_pcvar_num(g_pMode),
-                      MODES[clamp(get_pcvar_num(g_pMode), 0, 2)]);
+                      gore_mode(),
+                      MODES[gore_mode()]);
         return PLUGIN_HANDLED;
     }
 
     new arg[4];
     read_argv(1, arg, charsmax(arg));
     new mode = clamp(str_to_num(arg), 0, 2);
-    set_pcvar_num(g_pMode, mode);
+    set_cvar_num(CVAR_MODE, mode);
 
     new name[32];
     get_user_name(id, name, charsmax(name));
